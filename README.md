@@ -29,7 +29,7 @@ Installing dependencies for python
 
 Launch python scripts
 ---------------------
-Set HOST variable in main.py to ip address your ds389. And use `python3 main.py` command for start testing.
+Set `HOST` variable in `main.py` to ip address your ds389. Set `SSH_PORT, SSH_LOGIN, SSH_PWD` for dbomn loggin over ssh. And use `python3 main.py` command for start testing.
 
 Install Erlang
 --------------
