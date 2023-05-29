@@ -1,0 +1,3 @@
+dn: dc=test,dc=net
+changetype: add
+objectClass: domain

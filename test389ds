@@ -1,0 +1,457 @@
+#!/usr/bin/env escript
+%% -*- erlang -*-
+%%! -sname test389ds debug verbose
+
+-module(test_389ds).
+-mode(compile).
+-compile(export_all).
+-compile(nowarn_export_all).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+-define(OBJECT_TYPE, "customObject").
+-define(GROUP_TYPE, "customGroup").
+
+-define(OBJECT_CLASS, "objectClass").
+-define(DESCRIPTION, "description").
+-define(UUID, "customUUID").
+-define(MEMBER, "customMember").
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% records from eldap
+-record(eldap_search, {
+	  base = <<>>,           % Baseobject
+	  filter = [],           % Search conditions
+	  scope=wholeSubtree,    % Search scope
+	  deref=derefAlways,     % Dereference
+	  attributes = [],       % Attributes to be returned
+	  types_only = false,    % Return types+values or types
+	  timeout = 0            % Timelimit for search
+	 }).
+
+-record(eldap_search_result, {
+	  entries = [],          % List of #eldap_entry{} records
+	  referrals = [],        % List of referrals
+	  controls = []}).       % List of server controls
+
+-record(eldap_entry, {
+	  object_name = <<>>,      % The DN for the entry
+	  attributes = []        % List of {Attribute, Value} pairs
+	 }).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+main([Host, Port, Pass]) ->
+    {ok, _} = application:ensure_all_started(ssh),
+
+    try
+        ConnCount = 25,
+        GrpCount = 12000,
+        ObjCount = 12000,
+        IterCount = 200,
+        maintest(Host, Port, Pass, ConnCount, GrpCount, ObjCount, IterCount)
+    catch
+        E:R:_Stc ->
+            io:format("Bad ~p\n", [{E,R}]),
+            usage()
+    end;
+main(P) ->
+    io:format("Bad ~p\n", [P]),
+    usage().
+
+usage() ->
+    io:format("usage: test389ds host port password \n"),
+    halt(1).
+    
+suffix() -> "dc=test,dc=net".
+
+connect(Host, Port, Pass) ->
+    try
+        %io:format("~p\n", [{Host, Port, Pass}]),    
+        NetworkParams = [
+            {port, list_to_integer(Port)},
+            {timeout, 60000},
+            {tcpopts, [{keepalive, true}]}
+            ],
+        
+        Conn =
+            case eldap:open([Host], NetworkParams) of
+                {ok, H} ->
+                    io:format("Ldap connection success ~p\n", [H]),
+                    case eldap:simple_bind(H, "cn=Directory Manager", Pass) of
+                        ok ->
+                            io:format("Ldap bind success \n"),
+                            H;
+                        {error, Error} ->
+                            eldap:close(H),
+                            io:format("Ldap bind error ~p\n", [Error]),
+                            throw({error, Error})
+                    end;
+                {error, Error} ->
+                    io:format("Ldap connection error ~p\n", [Error]),
+                    throw({error, Error})
+            end,
+        {ok, Conn}
+        %eldap:close(Conn),
+        %io:format("~p\n", [uuid()])
+    catch
+        throw : Err ->
+            io:format("Error ~p\n", [Err]),
+        Err
+    end.
+    
+disconnect(Conn) -> eldap:close(Conn).
+    
+    
+uuid() ->
+    <<Rand1:48, _:4, Rand2:12, _:2, Rand3:62>> = crypto:strong_rand_bytes(16),
+    <<Value:128/unsigned-integer>> = <<Rand1:48, 0:1, 1:1, 0:1, 0:1, Rand2:12, 1:1, 0:1, Rand3:62>>,
+    [N01, N02, N03, N04, N05, N06, N07, N08,
+     N09, N10, N11, N12,
+     N13, N14, N15, N16,
+     N17, N18, N19, N20,
+     N21, N22, N23, N24, N25, N26, N27, N28, N29, N30, N31, N32] =
+        int_to_hex_list(Value, 32),
+    [N01, N02, N03, N04, N05, N06, N07, N08, $-,
+     N09, N10, N11, N12, $-,
+     N13, N14, N15, N16, $-,
+     N17, N18, N19, N20, $-,
+     N21, N22, N23, N24, N25, N26, N27, N28, N29, N30, N31, N32]. 
+     
+int_to_hex_list(I, N) when is_integer(I), I >= 0 ->
+    int_to_hex_list([], I, 1, N).
+
+int_to_list_pad(L, 0) ->
+    L;
+int_to_list_pad(L, Count) ->
+    int_to_list_pad([$0 | L], Count - 1).
+
+int_to_hex_list(L, I, Count, N)
+    when I < 16 ->
+    int_to_list_pad([int_to_hex(I) | L], N - Count);
+int_to_hex_list(L, I, Count, N) ->
+    int_to_hex_list([int_to_hex(I rem 16) | L], I div 16, Count + 1, N).
+
+int_to_dec(I) when 0 =< I, I =< 9 ->
+    I + $0.
+
+int_to_hex(I) when 0 =< I, I =< 9 ->
+    I + $0;
+int_to_hex(I) when 10 =< I, I =< 15 ->
+    (I - 10) + $a.
+    
+    
+type_to_class(object) -> ?OBJECT_TYPE;
+type_to_class(group) -> ?GROUP_TYPE.
+
+type_to_name(object) -> "Object";
+type_to_name(group) -> "Group".
+
+gen_name(Type, Num) ->
+    unicode:characters_to_list([type_to_name(Type), "_", integer_to_list(Num)]).
+
+gen_dn(Name) ->
+    unicode:characters_to_list(["cn=", Name, ",", suffix()]).
+    
+gen_object(Type, Num) ->
+    Name = gen_name(Type, Num),
+    Dn = gen_dn(Name),
+    Attrs = [
+        {?OBJECT_CLASS, [type_to_class(Type)]},
+        {?DESCRIPTION, [Name]},
+        {?UUID, [uuid()]}
+    ],
+
+    {Dn, Attrs}.
+
+maintest(Host, Port, Pass, ConnCount, GrpCount, ObjCount, IterCount) ->
+    random:seed(now()),
+
+    F1 = fun(_) ->
+        {ok, Conn} = connect(Host, Port, Pass),
+        Conn
+    end,
+    Conns = lists:map(F1, lists:seq(1, ConnCount)),
+    %log("~p, ~p, ~p", [ParamObjs, ParamGrps, Conns]), 
+    %log("~p", [?MODULE]), 
+    
+    F2 = fun(Num) ->
+        iteration(Num, Conns, GrpCount, ObjCount)
+    end,
+    lists:foreach(F2, lists:seq(1, IterCount)),
+    
+    lists:map(fun disconnect/1, Conns).
+
+iteration(Num, Conns, GrpCount, ObjCount) ->
+    F1 = fun(N) ->
+        gen_object(group, N)
+    end, 
+    Grps = lists:map(F1, lists:seq(1, GrpCount)),
+
+    F2 = fun(N) ->
+        gen_object(object, N)
+    end,
+    Objects = lists:map(F2, lists:seq(1, ObjCount)),
+            
+    ConnCount = length(Conns),
+    ObjPerConn = ObjCount div ConnCount,
+    GrpPerConn = GrpCount div ConnCount,
+    
+    ParamObjs = [lists:sublist(Objects, 1 + (ConnCount - 1) * ObjPerConn, 2 * ObjPerConn) | 
+        lists:map(
+            fun(N) ->
+                lists:sublist(Objects, 1 + (N - 1) * ObjPerConn, ObjPerConn)
+            end, lists:seq(1, ConnCount - 1))    
+    ],
+    
+    ParamGrps = [lists:sublist(Grps, 1 + (ConnCount - 1) * GrpPerConn, 2 * GrpPerConn) | 
+        lists:map(
+            fun(N) ->
+                lists:sublist(Grps, 1 + (N - 1) * GrpPerConn, GrpPerConn)
+            end, lists:seq(1, ConnCount - 1))      
+    ],
+
+    NumBin = integer_to_binary(Num),
+    log("Start iteration ~p", [Num]),
+    dbmon_log(<<"before_iter_", NumBin/binary, ".log">>),
+    
+    with_timer("Objects created", fun create_entities/2, [Conns, ParamObjs]),
+    with_timer("Groups created", fun create_entities/2, [Conns, ParamGrps]),
+    dbmon_log(<<"after_insert_", NumBin/binary, ".log">>),
+
+    with_timer("Objects updated", fun update_entities/3, [Conns, ParamObjs, Objects]),
+    with_timer("Groups updated", fun update_entities/3, [Conns, ParamGrps, Objects]),
+    dbmon_log(<<"after_update_", NumBin/binary, ".log">>),
+
+    with_timer("Objects deleted", fun delete_entities/2, [Conns, ParamObjs]),
+    with_timer("Groups deleted", fun delete_entities/2, [Conns, ParamGrps]),
+    dbmon_log(<<"after_delete_", NumBin/binary, ".log">>),
+        
+    log("End iteration ~p", [Num]).
+
+log(Format, Params) ->
+    io:format(unicode:characters_to_list(["~s    ", Format, "\n"]), [current_time()] ++ Params).
+    
+    
+current_time() ->
+    Timestamp = os:timestamp(),
+    {_,_,Micro} = Timestamp,
+    {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_datetime(Timestamp),
+
+    lists:flatten(
+        io_lib:format("~4..0w-~2..0w-~2..0wT~2..0w:~2..0w:~2..0w.~3..0sZ",
+            [Year, Month, Day, Hour, Minute, Second, integer_to_list(Micro)]
+        )
+    ).
+    
+with_timer(Message, Function, Args) ->
+    {Time, Res} = timer:tc(Function, Args),
+    log(Message ++ ": ~.3f (sec)", [Time/1000000]),
+    Res.
+    
+create_entities(Conns, Params) ->
+    %log("~p", [Params]),
+    Shuffled = shuffle(Params),
+    %create_entity({hd(Conns), hd(Shuffled)}).
+    rpc:pmap({?MODULE, create_entity}, [], lists:zip(Conns, Shuffled)).
+    
+update_entities(Conns, Params, Objects) ->
+    Shuffled = shuffle(Params),
+    %update_entity({hd(Conns), hd(Shuffled)}, Objects).
+    rpc:pmap({?MODULE, update_entity}, [Objects], lists:zip(Conns, Shuffled)).
+    
+delete_entities(Conns, Params) ->
+    Shuffled = shuffle(Params),
+    rpc:pmap({?MODULE, delete_entity}, [], lists:zip(Conns, Shuffled)).
+
+create_entity({Conn, Ents}) ->
+    lists:foreach(
+        fun({Dn, Attrs}) ->
+            %log("~p,", [{Conn, Dn, Attrs}]),
+            ok = eldap:add(Conn, Dn, Attrs)
+        end, Ents).
+
+get_update_ops(Conn, Attrs, GroupId, Objects) ->
+    {_, Classes} = lists:keyfind(?OBJECT_CLASS, 1, Attrs),
+    case lists:member(?GROUP_TYPE, Classes) of
+        true ->
+            Ids = rand_ids(Objects, 10),
+
+            % emulate object checking
+            {ok, _} = search_list(Conn, ?UUID, [GroupId|Ids]),
+
+            [ eldap:mod_replace(?MEMBER, Ids) ];
+        _ -> 
+            [
+                eldap:mod_replace(?DESCRIPTION, [unicode:characters_to_list(["Updated_", GroupId])])
+            ]
+    end.
+
+update_entity({Conn, Ents}, Objects) ->
+    lists:foreach(
+        fun({_, Attrs}) ->
+            %log("~p", [{Conn, Dn, Attrs}]),
+            GroupId = get_id(Attrs),
+            {ok, Entry} = search(Conn, ?UUID, GroupId),
+            #eldap_entry{object_name = Dn} = Entry,
+
+            %% emulate check ring
+            search_parent_group(Conn, GroupId),
+
+            ok = eldap:modify(Conn, Dn, get_update_ops(Conn, Attrs, GroupId, Objects))
+        end, Ents).
+
+delete_entity({Conn, Ents}) ->
+    lists:foreach(
+        fun({Dn, Attrs}) ->
+            Id = get_id(Attrs),
+            %log("~p", [{Conn, Dn, Attrs}]),
+            ok = eldap:delete(Conn, Dn), 
+            clear_member(Conn, [Id])
+        end, Ents).
+
+search(Conn, IdAttr, Id) ->
+    Params =
+        #eldap_search{
+            base = suffix(),
+            filter = eldap:equalityMatch(IdAttr, Id),
+            scope = eldap:wholeSubtree(),
+            attributes = [?OBJECT_CLASS, ?DESCRIPTION, ?UUID] },
+
+    case eldap:search(Conn, Params) of
+        {ok, {eldap_search_result, [Entry|_], _}} ->
+            {ok, Entry};
+        _ ->
+            error
+    end.
+
+search_list(Conn, IdAttr, IdList) ->
+    Params =
+        #eldap_search{
+            base = suffix(),
+            filter = id_filter(IdAttr, IdList),
+            scope = eldap:wholeSubtree(),
+            attributes = [?OBJECT_CLASS, ?DESCRIPTION, ?UUID] },
+
+    case eldap:search(Conn, Params) of
+        {ok, {eldap_search_result, Entries, _}} ->
+            {ok, Entries};
+        _ ->
+            error
+    end.
+
+search_parent_group(Conn, Id) ->
+    Params =
+        #eldap_search{
+            base = suffix(),
+            filter = eldap:'and'([eldap:equalityMatch(?OBJECT_CLASS, ?GROUP_TYPE), eldap:'not'(eldap:equalityMatch(?OBJECT_CLASS, "nsTombstone")), id_filter(?MEMBER, [Id])]),
+            scope = eldap:wholeSubtree(),
+            attributes = [?OBJECT_CLASS, ?MEMBER, ?UUID] },
+
+    case eldap:search(Conn, Params) of
+        {ok, {eldap_search_result, Entries, _}} ->
+            {ok, Entries};
+        _ ->
+            error
+    end.
+
+clear_member(_Conn, []) ->
+    ok;
+clear_member(Conn, Members) ->
+    try
+        Params =
+            #eldap_search{
+                base = suffix(),
+                filter = eldap:'and'([eldap:equalityMatch(?OBJECT_CLASS, ?GROUP_TYPE), id_filter(?MEMBER, Members)]),
+                scope = eldap:wholeSubtree(),
+                attributes = [?UUID, ?MEMBER] },
+
+        {ok, {eldap_search_result, Groups, _}} = eldap:search(Conn, Params),
+
+        F = fun({eldap_entry, Dn, Attrs}) ->
+            case get_attr(?MEMBER, Attrs, []) of
+                [] -> 
+                    ok;
+                Old ->
+                    Ops = [ eldap:mod_replace(?MEMBER, lists:subtract(Old, Members)) ],
+                    eldap:modify(Conn, Dn, Ops)
+            end
+        end,
+        lists:foreach(F, Groups)
+    catch
+        _Error:Reason:_Stacktrace ->
+            io:format("Error: ~p\n", [Reason]),
+            {error, Reason}
+    end.
+
+get_attr(Key, List, Default) ->
+    case lists:keyfind(Key, 1, List) of
+        false -> Default;
+        {Key, Value} -> Value
+    end.
+
+%set_attr(Key, List, NewValue)
+%    lists:keystore(Key, 1, List, {Key, NewValue}).
+
+id_filter(Attr, [Id]) ->
+    eldap:equalityMatch(Attr, Id);
+id_filter(Attr, List) ->
+    F = fun(Id) ->
+        eldap:equalityMatch(Attr, Id)
+    end,
+    eldap:'or'(lists:map(F, List)).
+
+get_id(Attrs) ->
+    {_, [Id|_]} = lists:keyfind(?UUID, 1, Attrs),
+    Id.
+
+dbmon_log(Filename) ->
+    Cmd = "docker exec c389ds dsconf localhost monitor dbmon",
+    Data = os:cmd(Cmd),
+    
+    {ok, Fd} = file:open(Filename, [write, binary]),
+    file:write(Fd, Data),
+    file:close(Fd).
+
+rand_ids(List, Count) ->
+    F = fun(_N, Acc) ->
+        {_Dn, Attrs} = rand_item(List),
+        case lists:keyfind(?UUID, 1, Attrs) of
+            false -> Acc;
+            {_, [Id|_]} -> [Id|Acc]
+        end
+    end,
+    Res = lists:foldl(F, [], lists:seq(0, Count)),
+    lists_uniq(Res).
+
+rand_item(List) ->
+    Size = length(List),
+    lists:nth(rand:uniform(Size), List).
+
+-spec lists_uniq(list()) -> list().
+lists_uniq(Lists) ->
+    uniq_1(Lists, #{}).
+
+uniq_1([X | Xs], M) ->
+    case is_map_key(X, M) of
+        true ->
+            uniq_1(Xs, M);
+        false ->
+            [X | uniq_1(Xs, M#{X => true})]
+    end;
+uniq_1([], _) ->
+    [].
+
+-spec shuffle(list()) -> list().
+shuffle([])     -> [];
+shuffle([Elem]) -> [Elem];
+shuffle(List)   -> shuffle(List, length(List), []).
+
+shuffle([], 0, Result) ->
+    Result;
+shuffle(List, Len, Result) ->
+    {Elem, Rest} = nth_rest(random:uniform(Len), List),
+    shuffle(Rest, Len - 1, [Elem|Result]).
+
+nth_rest(N, List) -> nth_rest(N, List, []).
+
+nth_rest(1, [E|List], Prefix) -> {E, Prefix ++ List};
+nth_rest(N, [E|List], Prefix) -> nth_rest(N - 1, List, [E|Prefix]).

@@ -1,0 +1,86 @@
+################################################################################
+#
+dn: cn=schema
+changetype: modify
+add: attributeTypes
+#
+################################################################################
+#
+attributeTypes: ( 1.3.6.1.4.1.34849.9.3.1.1 
+    NAME ( 'customMember' )
+    DESC 'Group members' 
+    EQUALITY caseIgnoreMatch 
+    SUBSTR caseIgnoreSubstringsMatch 
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15)
+#
+################################################################################
+#
+attributeTypes: ( 1.3.6.1.4.1.34849.9.3.1.2
+    NAME ( 'customUUID' )
+    DESC 'UUID of the entry'
+    EQUALITY caseIgnoreMatch
+    ORDERING caseIgnoreOrderingMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15
+    SINGLE-VALUE)
+#
+################################################################################
+
+dn: cn=schema
+changetype: modify
+add: objectClasses
+#
+################################################################################
+#
+objectClasses: ( 1.3.6.1.4.1.34849.9.3.2.1 
+    NAME ( 'customBase' ) 
+    DESC 'Base class' 
+    SUP ( top ) 
+    ABSTRACT 
+    MUST ( customUUID $ cn )
+    MAY ( description ) )
+#
+################################################################################
+#
+objectClasses: ( 1.3.6.1.4.1.34849.9.3.2.2 
+    NAME ( 'customObject' ) 
+    DESC 'custom object class' 
+    SUP ( 'customBase' ) 
+    STRUCTURAL )
+#
+################################################################################
+#
+objectClasses: ( 1.3.6.1.4.1.34849.9.3.2.3 
+    NAME ( 'customGroup' ) 
+    DESC 'custom group class' 
+    SUP ( 'customBase' ) 
+    STRUCTURAL
+    MAY ( customMember ) )
+#
+################################################################################
+#
+
+# entryid index
+dn: cn=entryid,cn=default indexes,cn=config,cn=ldbm database,cn=plugins,cn=config
+changetype:add
+objectClass:nsIndex
+nsSystemIndex:true
+nsIndexType:eq
+nsMatchingRule:integerOrderingMatch
+
+# Unique identifier index
+dn: cn=customUUID,cn=default indexes,cn=config,cn=ldbm database,cn=plugins,cn=config
+changetype:add
+objectClass:nsIndex
+nsSystemIndex:true
+nsIndexType:eq
+
+# customMember index
+dn: cn=customMember,cn=default indexes,cn=config,cn=ldbm database,cn=plugins,cn=config
+changetype:add
+objectClass:nsIndex
+nsSystemIndex:false
+nsIndexType:eq
+
+#
+################################################################################
+#
