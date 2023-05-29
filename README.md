@@ -33,7 +33,7 @@ Set HOST variable in main.py to ip address your ds389. And use `python3 main.py`
 
 Install Erlang
 --------------
-Use `apt-get install erlang' for install latest version erlang for debian, or download and install older version from [Old version Erlang](https://www.erlang-solutions.com/downloads/).
+Use `apt-get install erlang` for install latest version erlang for debian, or download and install older version from [Old version Erlang](https://www.erlang-solutions.com/downloads/).
 For example in debian use [Erlang 23.2.3](https://packages.erlang-solutions.com/erlang/debian/pool/esl-erlang_23.2.3-1~debian~buster_amd64.deb).
 
 Launch erlang scripts
