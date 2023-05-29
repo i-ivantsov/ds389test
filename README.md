@@ -5,11 +5,11 @@ Script for testing 389ds
 
 Table of contents
 ----------
-* [Create and launch container with test schema](#Create and launch container with test schema)
-* [Install dependencies for python](#Install dependencies for python)
-* [Launch python scripts](#Launch python scripts)
-* [Install Erlang](#Install Erlang)
-* [Launch erlang scripts](#Launch erlang scripts)
+* [Create and launch container with test schema](#сreate-and-launch-container-with-test-schema)
+* [Install dependencies for python](#install-dependencies-for-python)
+* [Launch python scripts](#launch-python-scripts)
+* [Install Erlang](#install-erlang)
+* [Launch erlang scripts](#launch-erlang-scripts)
 
 Create and launch container with test schema
 --------------------------------------------
