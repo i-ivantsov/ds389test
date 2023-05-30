@@ -3,43 +3,68 @@ ds389_test
 Script for testing 389ds
 =====
 
-Table of contents
+# Table of contents
 ----------
-* [Create and launch container with test schema](#сreate-and-launch-container-with-test-schema)
-* [Install dependencies for python](#install-dependencies-for-python)
-* [Launch python scripts](#launch-python-scripts)
-* [Install Erlang](#install-erlang)
-* [Launch erlang scripts](#launch-erlang-scripts)
+* [1. Create and launch container with test schema](#1-create-and-launch-container-with-test-schema)
+* [2. Start script](#2-start-script)
+* > [2.1 Python script](#2.1-python-script)
+* >> [2.1.1 Pre-requirements](#2.1.1-pre-requirements)
+* >> [2.1.2 Set-up variables](#2.1.2-set-up-variables)
+* >> [2.1.3 Launch](#2.1.3-launch)
+* > [2.2 Erlang script](#2.2-erlang-script)
+* >> [2.2.1 Pre-requirements](#2.2.1-pre-requirements)
+* >> [2.2.2 Launch](#2.2.2-launch)
 
-Create and launch container with test schema
+# 1. Create and launch container with test schema
 --------------------------------------------
-Dockerfile, schema, and supporting scripts are located in the Scripts. Use the following command to run:
+Dockerfile, schema and helper scripts are located in `Scripts` folder. Use the following command to start ds389 up:
 ```
+    cd Schema
     chmod +x start.sh
     ./start.sh
 ```
 
-Installing dependencies for python
-----------------------------------
+# 2. Start script
+-------------------
+Either `Python` or `Erlang` script can be used.
+
+## 2.1 Python script
+### 2.1.1 Pre-requirements
+--------------------------------------------
 ```
      sudo apt-get install python3-pip
      python3 -m pip install --upgrade pip
      python3 -m pip install ldap3 paramiko
 ```
 
-Launch python scripts
----------------------
-Set `HOST` variable in `main.py` to ip address your ds389. Set `SSH_PORT, SSH_LOGIN, SSH_PWD` for dbomn loggin over ssh. And use `python3 main.py` command for start testing.
+### 2.1.2 Set-up variables
+--------------------------
+Some changes are required to be made in `main.py`:
 
-Install Erlang
---------------
-Use `apt-get install erlang` for install latest version erlang for debian, or download and install older version from [Old version Erlang](https://www.erlang-solutions.com/downloads/).
-For example in debian use [Erlang 23.2.3](https://packages.erlang-solutions.com/erlang/debian/pool/esl-erlang_23.2.3-1~debian~buster_amd64.deb).
+Set `HOST` variable to ip address of ds389;
 
-Launch erlang scripts
----------------------
-Use following commands for launch erlang srcipts
+Set `DBMON_LOG_MODE` to either `"ssh"`, `"local"` or `"off"`. In case of python script and ds389 server are running on the same machine prefer `local`. If you run script separately use `"ssh"` and be sure to change `SSH_PORT`, `SSH_LOGIN` and `SSH_PWD` variables respectively. If no logging required then left it to `"off"`. Default value is `"local"`.
+
+### 2.1.3 Launch
+----------------
+Run `main.py` with the following command:
+
+```
+python3 main.py
+```
+
+## 2.2 Erlang script
+--------------------
+### 2.2.1 Pre-requirements
+----------------------
+Install `erlang` package via package manager (e.g. for debian use `apt-get install erlang`) or download manually from [here](https://www.erlang-solutions.com/downloads/).
+For example in Debian (Buster) the latest avaliable version is [23.2.3](https://packages.erlang-solutions.com/erlang/debian/pool/esl-erlang_23.2.3-1~debian~buster_amd64.deb).
+
+### 2.2.2 Launch
+----------------
+Run `test389ds` with the following command:
+
 ```
     chmod +x test389ds
-    escript test389ds <ip address your ds389> 3389 test
+    escript test389ds <ip address of ds389> 3389 test
 ```
